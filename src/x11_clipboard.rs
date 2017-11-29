@@ -57,7 +57,7 @@ where
     fn get_contents(&mut self) -> Result<(Vec<u8>, String), Box<Error>> {
         Ok((self.0.load(
             S::atom(&self.0.getter.atoms),
-            self.0.getter.atoms.clipboard,
+            self.0.getter.atoms.utf8_string,
             self.0.getter.atoms.property,
             Duration::from_secs(3),
         )?, String::new()))
@@ -66,7 +66,7 @@ where
     fn set_contents(&mut self, data: Vec<u8>, _kind: String) -> Result<(), Box<Error>> {
         Ok(self.0.store(
             S::atom(&self.0.setter.atoms),
-            self.0.setter.atoms.clipboard,
+            self.0.setter.atoms.utf8_string,
             data,
         )?)
     }
