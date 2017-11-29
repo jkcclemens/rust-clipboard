@@ -23,12 +23,12 @@ impl ClipboardProvider for NopClipboardContext {
     fn new() -> Result<NopClipboardContext, Box<Error>> {
         Ok(NopClipboardContext)
     }
-    fn get_contents(&mut self) -> Result<String, Box<Error>> {
+    fn get_contents(&mut self) -> Result<(Vec<u8>, String), Box<Error>> {
         println!("Attempting to get the contents of the clipboard, which hasn't yet been \
                   implemented on this platform.");
-        Ok("".to_string())
+        Ok((Vec::new(), String::new()))
     }
-    fn set_contents(&mut self, _: String) -> Result<(), Box<Error>> {
+    fn set_contents(&mut self, _: Vec<u8>, _: String) -> Result<(), Box<Error>> {
         println!("Attempting to set the contents of the clipboard, which hasn't yet been \
                   implemented on this platform.");
         Ok(())

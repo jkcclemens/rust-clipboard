@@ -16,9 +16,9 @@ limitations under the License.
 
 use common::*;
 use objc::runtime::{Object, Class};
-use objc_foundation::{INSArray, INSString, INSObject};
-use objc_foundation::{NSArray, NSDictionary, NSString, NSObject};
-use objc_id::{Id, Owned};
+use objc_foundation::{INSData, INSString};
+use objc_foundation::{NSArray, NSData, NSString};
+use objc_id::{Id};
 use std::error::Error;
 use std::mem::transmute;
 
@@ -40,31 +40,67 @@ impl ClipboardProvider for OSXClipboardContext {
         let pasteboard: Id<Object> = unsafe { Id::from_ptr(pasteboard) };
         Ok(OSXClipboardContext { pasteboard: pasteboard })
     }
-    fn get_contents(&mut self) -> Result<String, Box<Error>> {
-        let string_class: Id<NSObject> = {
-            let cls: Id<Class> = unsafe { Id::from_ptr(class("NSString")) };
-            unsafe { transmute(cls) }
-        };
-        let classes: Id<NSArray<NSObject, Owned>> = NSArray::from_vec(vec![string_class]);
-        let options: Id<NSDictionary<NSObject, NSObject>> = NSDictionary::new();
-        let string_array: Id<NSArray<NSString>> = unsafe {
+    fn get_contents(&mut self) -> Result<(Vec<u8>, String), Box<Error>> {
+        let pb_item_array: Id<NSArray<Object>> = unsafe {
             let obj: *mut _ =
-                msg_send![self.pasteboard, readObjectsForClasses:&*classes options:&*options];
+                msg_send![self.pasteboard, pasteboardItems];
             if obj.is_null() {
                 return Err(err("pasteboard#readObjectsForClasses:options: returned null"));
             }
             Id::from_ptr(obj)
         };
-        if string_array.count() == 0 {
-            Err(err("pasteboard#readObjectsForClasses:options: returned empty"))
-        } else {
-            Ok(string_array[0].as_str().to_owned())
+        let count: usize = unsafe { msg_send![pb_item_array, count] };
+        if count == 0 {
+            return Err(err("pasteboard#readObjectsForClasses:options: returned empty"))
         }
+        let pb_item: *const Object = unsafe {
+            let obj: *const Object = msg_send![pb_item_array, objectAtIndex:0];
+            &*obj
+        };
+        let types: Id<NSArray<Object>> = unsafe {
+            let obj: *mut _ = msg_send![pb_item, types];
+            if obj.is_null() {
+                return Err(err("pasteboardItem#types: returned null"));
+            }
+            Id::from_ptr(obj)
+        };
+        let count: usize = unsafe { msg_send![types, count] };
+        if count == 0 {
+            return Err(err("pasteboardItem#types: returned empty"));
+        }
+        let kind = unsafe {
+            let obj: *const Object = msg_send![types, objectAtIndex:0];
+            &*obj
+        };
+        let kind_str: &NSString = unsafe { transmute(kind) };
+        let data: Id<NSData> = unsafe {
+            let obj: *mut _ = msg_send![pb_item, dataForType:kind];
+            if obj.is_null() {
+                return Err(err("pasteboardItem#dataForType:type: returned null"));
+            }
+            Id::from_ptr(obj)
+        };
+        Ok((data.bytes().to_vec(), kind_str.as_str().to_owned()))
     }
-    fn set_contents(&mut self, data: String) -> Result<(), Box<Error>> {
-        let string_array = NSArray::from_vec(vec![NSString::from_str(&data)]);
+    fn set_contents(&mut self, data: Vec<u8>, kind: String) -> Result<(), Box<Error>> {
+        let cls = Class::get("NSPasteboardItem").ok_or(err("Class::get(\"NSPasteboardItem\")"))?;
+        let item: Id<Object> = unsafe { Id::from_ptr(msg_send![cls, new]) };
+        let success: bool = unsafe {
+            msg_send![item, setData:NSData::from_vec(data) forType:NSString::from_str(&kind)]
+        };
+        if !success {
+            return Err(err("NSPasteboardItem#setData: returned false"));
+        }
         let _: usize = unsafe { msg_send![self.pasteboard, clearContents] };
-        let success: bool = unsafe { msg_send![self.pasteboard, writeObjects:string_array] };
+        let refs = vec![item];
+        let item_array: Id<NSArray<Object>> = unsafe {
+            let cls = Class::get("NSArray").unwrap();
+            let obj: *mut NSArray<Object> = msg_send![cls, alloc];
+            let obj: *mut NSArray<Object> = msg_send![obj, initWithObjects:refs.as_ptr()
+                                                            count:refs.len()];
+            Id::from_retained_ptr(obj)
+        };
+        let success: bool = unsafe { msg_send![self.pasteboard, writeObjects:item_array] };
         return if success {
             Ok(())
         } else {
